@@ -38,7 +38,7 @@
 
 typedef struct dpl_dyn_pcre
 {
-	pcre *re;
+	pcre2_code *re;
 	int cnt;
 	str expr;
 
@@ -175,9 +175,9 @@ int dpl_detect_avp_indx(const pv_elem_p elem, pv_elem_p *avp)
 	return 0;
 }
 
-pcre *dpl_dyn_pcre_comp(sip_msg_t *msg, str *expr, str *vexpr, int *cap_cnt)
+pcre2_code *dpl_dyn_pcre_comp(sip_msg_t *msg, str *expr, str *vexpr, int *cap_cnt)
 {
-	pcre *re = NULL;
+	pcre2_code *re = NULL;
 	int ccnt = 0;
 
 	if(expr==NULL || expr->s==NULL || expr->len<=0 ||
@@ -214,7 +214,7 @@ dpl_dyn_pcre_p dpl_dynamic_pcre_list(sip_msg_t *msg, str *expr)
 	dpl_dyn_pcre_p rt = NULL;
 	struct str_list *l = NULL;
 	struct str_list *t = NULL;
-	pcre *re = NULL;
+	pcre2_code *re = NULL;
 	int cnt = 0;
 	str vexpr = STR_NULL;
 
@@ -251,6 +251,7 @@ dpl_dyn_pcre_p dpl_dynamic_pcre_list(sip_msg_t *msg, str *expr)
 					goto error;
 				}
 				rt->re = re;
+				rt->match_data = pcre2_match_data_create_from_pattern(re, NULL);
 				rt->expr.s = t->s.s;
 				rt->expr.len = t->s.len;
 				rt->cnt = cnt;
@@ -274,6 +275,7 @@ dpl_dyn_pcre_p dpl_dynamic_pcre_list(sip_msg_t *msg, str *expr)
 				goto error;
 			}
 			rt->re = re;
+			rt->match_data = pcre2_match_data_create_from_pattern(re, NULL);
 			rt->expr.s = expr->s;
 			rt->expr.len = expr->len;
 			rt->cnt = cnt;
@@ -285,7 +287,8 @@ dpl_dyn_pcre_p dpl_dynamic_pcre_list(sip_msg_t *msg, str *expr)
 error:
 	while(re_list) {
 		rt = re_list->next;
-		if(re_list->re) pcre_free(re_list->re);
+		if(re_list->match_data) pcre2_match_data_free(re_list->match_data);
+		if(re_list->re) pcre2_code_free(re_list->re);
 		pkg_free(re_list);
 		re_list = rt;
 	}
@@ -387,7 +390,7 @@ error:
 #define MAX_PHONE_NB_DIGITS		127
 static char dp_output_buf[MAX_PHONE_NB_DIGITS+1];
 int rule_translate(sip_msg_t *msg, str *instr, dpl_node_t *rule,
-		pcre *subst_comp, str *result)
+		pcre2_code *subst_comp, pcre2_match_data *match_data, str *result)
 {
 	int repl_nb, offset, match_nb, rc, cap_cnt;
 	struct replace_with token;
@@ -411,7 +414,7 @@ int rule_translate(sip_msg_t *msg, str *instr, dpl_node_t *rule,
 
 	if(subst_comp){
 		/*just in case something went wrong at load time*/
-		rc = pcre_fullinfo(subst_comp, NULL, PCRE_INFO_CAPTURECOUNT,
+		rc = pcre2_pattern_info(subst_comp, PCRE2_INFO_CAPTURECOUNT,
 				&cap_cnt);
 		if (rc != 0) {
 			LM_ERR("pcre_fullinfo on compiled pattern yielded error: %d\n",
@@ -430,7 +433,7 @@ int rule_translate(sip_msg_t *msg, str *instr, dpl_node_t *rule,
 		}
 
 		/*search for the pattern from the compiled subst_exp*/
-		if (pcre_exec(subst_comp, NULL, instr->s, instr->len,
+		if (pcre2_match(subst_comp, instr->s, instr->len,
 					0, 0, ovector, 3 * (MAX_REPLACE_WITH + 1)) <= 0) {
 			LM_DBG("the string %.*s matched "
 					"the match_exp %.*s but not the subst_exp %.*s!\n",
@@ -615,21 +618,22 @@ search_rule:
 					rez = -1;
 					do {
 						if(rez<0) {
-							rez = pcre_exec(re_list->re, NULL, input->s, input->len,
-									0, 0, NULL, 0);
+							rez = pcre2_match(re_list->re, input->s, input->len,
+									0, 0, re_list->match_data, NULL);
 							LM_DBG("match check: [%.*s] %d\n",
 								re_list->expr.len, re_list->expr.s, rez);
 						}
 						else LM_DBG("match check skipped: [%.*s] %d\n",
 								re_list->expr.len, re_list->expr.s, rez);
 						rt = re_list->next;
-						pcre_free(re_list->re);
+						pcre2_match_data_free(re_list->match_data);
+						pcre2_code_free(re_list->re);
 						pkg_free(re_list);
 						re_list = rt;
 					} while(re_list);
 				} else {
-					rez = pcre_exec(rulep->match_comp, NULL, input->s, input->len,
-						0, 0, NULL, 0);
+					rez = pcre_exec(rulep->match_comp, input->s, input->len,
+						0, 0, rulep->match_data, NULL);
 				}
 				break;
 
@@ -713,14 +717,15 @@ repl:
 		rez = -1;
 		do {
 			if(rez<0) {
-				rez = rule_translate(msg, input, rulep, re_list->re, output);
+				rez = rule_translate(msg, input, rulep, re_list->re, re_list->match_data, output);
 				LM_DBG("subst check: [%.*s] %d\n",
 					re_list->expr.len, re_list->expr.s, rez);
 			}
 			else LM_DBG("subst check skipped: [%.*s] %d\n",
 					re_list->expr.len, re_list->expr.s, rez);
 			rt = re_list->next;
-			pcre_free(re_list->re);
+			pcre2_match_data_free(re_list->match_data);
+			pcre2_code_free(re_list->re);
 			pkg_free(re_list);
 			re_list = rt;
 		} while(re_list);
@@ -733,7 +738,7 @@ repl:
 		}
 	}
 	else {
-		if(rule_translate(msg, input, rulep, rulep->subst_comp, output)!=0){
+		if(rule_translate(msg, input, rulep, rulep->subst_comp, rulep->match_data, output)!=0){
 			LM_ERR("could not build the output\n");
 			return -1;
 		}

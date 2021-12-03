@@ -369,43 +369,44 @@ int dpl_str_to_shm(str src, str *dest, int mterm)
 
 /* Compile pcre pattern
  * if mtype==0 - return pointer to shm copy of result
- * if mtype==1 - return pcre pointer that has to be pcre_free() */
-pcre *reg_ex_comp(const char *pattern, int *cap_cnt, int mtype)
+ * if mtype==1 - return pcre2_code pointer that has to be pcre2_code_free() */
+pcre2_code *reg_ex_comp(const char *pattern, int *cap_cnt, int mtype)
 {
-	pcre *re, *result;
-	const char *error;
-	int rc, err_offset;
-	size_t size;
+	pcre2_code *re, *result;
+	PCRE2_UCHAR error[256];
+	int rc, err_number;
+	size_t size, err_offset;
 
-	re = pcre_compile(pattern, 0, &error, &err_offset, NULL);
+	re = pcre2_compile((PCRE2_SPTR)pattern, PCRE2_ZERO_TERMINATED, 0, &err_number, &err_offset, NULL);
 	if (re == NULL) {
-		LM_ERR("PCRE compilation of '%s' failed at offset %d: %s\n",
+		pcre2_get_error_message(err_number, error, sizeof(error));
+		LM_ERR("PCRE compilation of '%s' failed at offset %zu: %s\n",
 				pattern, err_offset, error);
-		return (pcre *)0;
+		return NULL;
 	}
-	rc = pcre_fullinfo(re, NULL, PCRE_INFO_SIZE, &size);
+	rc = pcre2_pattern_info(re, PCRE2_INFO_SIZE, &size);
 	if (rc != 0) {
-		pcre_free(re);
+		pcre2_code_free(re);
 		LM_ERR("pcre_fullinfo on compiled pattern '%s' yielded error: %d\n",
 				pattern, rc);
-		return (pcre *)0;
+		return NULL;
 	}
-	rc = pcre_fullinfo(re, NULL, PCRE_INFO_CAPTURECOUNT, cap_cnt);
+	rc = pcre2_pattern_info(re, PCRE2_INFO_CAPTURECOUNT, cap_cnt);
 	if (rc != 0) {
-		pcre_free(re);
+		pcre2_code_free(re);
 		LM_ERR("pcre_fullinfo on compiled pattern '%s' yielded error: %d\n",
 				pattern, rc);
-		return (pcre *)0;
+		return NULL;
 	}
 	if(mtype==0) {
-		result = (pcre *)shm_malloc(size);
+		result = (pcre2_code *)shm_malloc(size);
 		if (result == NULL) {
-			pcre_free(re);
+			pcre2_code_free(re);
 			LM_ERR("not enough shared memory for compiled PCRE pattern\n");
-			return (pcre *)0;
+			return NULL;
 		}
 		memcpy(result, re, size);
-		pcre_free(re);
+		pcre2_code_free(re);
 		return result;
 	} else {
 		return re;
@@ -416,7 +417,7 @@ pcre *reg_ex_comp(const char *pattern, int *cap_cnt, int mtype)
 /*compile the expressions, and if ok, build the rule */
 dpl_node_t * build_rule(db_val_t * values)
 {
-	pcre *match_comp, *subst_comp;
+	pcre2_code *match_comp, *subst_comp;
 	struct subst_expr *repl_comp;
 	dpl_node_t * new_rule;
 	str match_exp, subst_exp, repl_exp, attrs;
