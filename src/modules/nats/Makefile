@@ -9,7 +9,7 @@ include ../../Makefile.defs
 auto_gen=
 NAME=nats.so
 
-LIBS=-lnats -luv
+LIBS=-lnats -luv -levent
 DEFS+=-I$(LOCALBASE)/include -I/usr/local/include
 
 include ../../Makefile.modules

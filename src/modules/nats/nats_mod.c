@@ -22,6 +22,7 @@
  *
  */
 
+#include "defs.h"
 #include "nats_mod.h"
 
 MODULE_VERSION
@@ -33,6 +34,9 @@ nats_connection_ptr _nats_connection = NULL;
 int _nats_proc_count;
 char *eventData = NULL;
 
+int *nats_pub_worker_pipes_fds = NULL;
+int *nats_pub_worker_pipes = NULL;
+
 static pv_export_t nats_mod_pvs[] = {
 		{{"natsData", (sizeof("natsData") - 1)}, PVT_OTHER,
 				nats_pv_get_event_payload, 0, 0, 0, 0, 0},
@@ -43,9 +47,14 @@ static param_export_t params[] = {{"nats_url", PARAM_STRING | USE_FUNC_PARAM,
 		{"subject_queue_group", PARAM_STRING | USE_FUNC_PARAM,
 				(void *)_init_nats_sub_add}};
 
+static cmd_export_t cmds[] = {{"nats_publish", (cmd_function)w_nats_publish_f,
+									  2, fixup_publish_get_value,
+									  fixup_publish_get_value_free, ANY_ROUTE},
+		{0, 0, 0, 0, 0, 0}};
+
 struct module_exports exports = {
 		"nats", DEFAULT_DLFLAGS, /* dlopen flags */
-		0,						 /* Exported functions */
+		cmds,					 /* Exported functions */
 		params,					 /* Exported parameters */
 		0,						 /* exported MI functions */
 		nats_mod_pvs,			 /* exported pseudo-variables */
@@ -169,7 +178,17 @@ static int mod_init(void)
 		LM_ERR("failed to init nat connections\n");
 		return -1;
 	}
-	register_procs(_nats_proc_count);
+	register_procs(_nats_proc_count + 1);
+
+	nats_pub_worker_pipes_fds = (int *)shm_malloc(sizeof(int) * 2);
+	nats_pub_worker_pipes = (int *)shm_malloc(sizeof(int) * 1);
+	nats_pub_worker_pipes_fds[0] = nats_pub_worker_pipes_fds[1] = -1;
+	if(pipe(&nats_pub_worker_pipes_fds[0]) < 0) {
+		LM_ERR("worker pipe failed\n");
+		return -1;
+	}
+	nats_pub_worker_pipes[0] = nats_pub_worker_pipes_fds[1];
+
 	nats_workers =
 			shm_malloc(_nats_proc_count * sizeof(nats_consumer_worker_t));
 	if(nats_workers == NULL) {
@@ -244,7 +263,7 @@ static int mod_child_init(int rank)
 
 	if(rank == PROC_MAIN) {
 		for(i = 0; i < _nats_proc_count; i++) {
-			newpid = fork_process(PROC_RPC, "NATS WORKER", 1);
+			newpid = fork_process(PROC_RPC, "NATS Subscriber", 1);
 			if(newpid < 0) {
 				LM_ERR("failed to fork worker process %d\n", i);
 				return -1;
@@ -254,7 +273,18 @@ static int mod_child_init(int rank)
 				nats_workers[i].pid = newpid;
 			}
 		}
-		return 0;
+
+		newpid = fork_process(PROC_NOCHLDINIT, "NATS Publisher", 1);
+		if(newpid < 0)
+			return -1; /* error */
+		if(newpid == 0) {
+			if(cfg_child_init())
+				return -1;
+			close(nats_pub_worker_pipes_fds[1]);
+			cfg_update();
+			_nats_pub_worker_proc(
+					nats_pub_worker_pipes_fds[0], _nats_connection);
+		}
 	}
 
 	return 0;
@@ -456,6 +486,12 @@ static void mod_destroy(void)
 	}
 	if(nats_cleanup_init_servers() < 0) {
 		LM_INFO("could not cleanup init server data\n");
+	}
+	if(nats_pub_worker_pipes_fds) {
+		shm_free(nats_pub_worker_pipes_fds);
+	}
+	if(nats_pub_worker_pipes) {
+		shm_free(nats_pub_worker_pipes);
 	}
 }
 
