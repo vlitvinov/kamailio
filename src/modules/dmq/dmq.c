@@ -107,6 +107,8 @@ static cmd_export_t cmds[] = {
 		0, 0, REQUEST_ROUTE},
 	{"dmq_t_replicate", (cmd_function)cfg_dmq_t_replicate, 1,
 		fixup_spve_null, 0, REQUEST_ROUTE},
+	{"dmq_t_replicate", (cmd_function)cfg_dmq_t_replicate, 2,
+		fixup_spve_null, 0, REQUEST_ROUTE},
 	{"dmq_is_from_node", (cmd_function)cfg_dmq_is_from_node, 0,
 		0, 0, REQUEST_ROUTE},
 	{"bind_dmq", (cmd_function)bind_dmq, 0,
@@ -497,6 +499,11 @@ static sr_kemi_t sr_kemi_dmq_exports[] = {
 	{ str_init("dmq"), str_init("t_replicate_mode"),
 		SR_KEMIP_INT, ki_dmq_t_replicate_mode,
 		{ SR_KEMIP_INT, SR_KEMIP_NONE, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init("dmq"), str_init("t_replicate_mode_rc"),
+		SR_KEMIP_INT, ki_dmq_t_replicate_mode_rc,
+		{ SR_KEMIP_INT, SR_KEMIP_INT, SR_KEMIP_NONE,
 			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
 	},
 	{ str_init("dmq"), str_init("send_message"),

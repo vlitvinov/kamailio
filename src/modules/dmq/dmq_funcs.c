@@ -424,7 +424,7 @@ int cfg_dmq_bcast_message(
 /**
  * @brief config file function for replicating SIP message to all nodes (wraps t_replicate)
  */
-int ki_dmq_t_replicate_mode(struct sip_msg *msg, int mode)
+int ki_dmq_t_replicate_mode_rc(struct sip_msg *msg, int mode, int returnval)
 {
 	dmq_node_t *node;
 	struct socket_info *sock;
@@ -476,10 +476,15 @@ int ki_dmq_t_replicate_mode(struct sip_msg *msg, int mode)
 		node = node->next;
 	}
 	lock_release(&dmq_node_list->lock);
-	return 0;
+	return returnval;
 error:
 	lock_release(&dmq_node_list->lock);
 	return -1;
+}
+
+int ki_dmq_t_replicate_mode(sip_msg_t *msg, int mode)
+{
+	return ki_dmq_t_replicate_mode_rc(msg, mode, 0);
 }
 
 int ki_dmq_t_replicate(sip_msg_t *msg)
@@ -490,14 +495,21 @@ int ki_dmq_t_replicate(sip_msg_t *msg)
 /**
  * @brief config file function for replicating SIP message to all nodes (wraps t_replicate)
  */
-int cfg_dmq_t_replicate(struct sip_msg *msg, char *s, char *p2)
+int cfg_dmq_t_replicate(struct sip_msg *msg, char *mode_s, char *returnval_s, char *p3)
 {
-	int i = 0;
-	if(s != NULL && get_int_fparam(&i, msg, (fparam_t *)s) < 0) {
-		LM_ERR("failed to get parameter value\n");
+	int mode = 0;
+	int returnval = 0;
+	if(mode_s != NULL && get_int_fparam(&mode, msg, (fparam_t *)mode_s) < 0) {
+		LM_ERR("failed to get mode parameter value\n");
 		return -1;
 	}
-	return ki_dmq_t_replicate_mode(msg, i);
+	if(returnval_s != NULL && get_int_fparam(&returnval, msg, (fparam_t *)returnval_s) < 0) {
+		LM_ERR("failed to get continue parameter value\n");
+		return -1;
+	}
+	if(returnval > 1)
+		returnval = 1;
+	return ki_dmq_t_replicate_mode_rc(msg, mode, returnval);
 }
 
 /*

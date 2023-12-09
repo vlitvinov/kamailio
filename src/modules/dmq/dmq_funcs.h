@@ -50,7 +50,7 @@ int cfg_dmq_send_message(struct sip_msg *msg, char *peer, char *to, char *body,
 		char *content_type);
 int cfg_dmq_bcast_message(
 		struct sip_msg *msg, char *peer, char *body, char *content_type);
-int cfg_dmq_t_replicate(struct sip_msg *msg, char *s, char *p2);
+int cfg_dmq_t_replicate(struct sip_msg *msg, char *mode_s, char *returnval_s, char *p3);
 int cfg_dmq_is_from_node(struct sip_msg *msg, char *p1, char *p2);
 dmq_peer_t *register_dmq_peer(dmq_peer_t *peer);
 int dmq_send_message(dmq_peer_t *peer, str *body, dmq_node_t *node,
@@ -68,5 +68,6 @@ int ki_dmq_bcast_message(
 int is_from_remote_node(sip_msg_t *msg);
 int ki_dmq_t_replicate(struct sip_msg *msg);
 int ki_dmq_t_replicate_mode(struct sip_msg *msg, int mode);
+int ki_dmq_t_replicate_mode_rc(struct sip_msg *msg, int mode, int returnval);
 
 #endif
