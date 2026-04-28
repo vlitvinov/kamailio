@@ -533,13 +533,10 @@ static sr_kemi_t sr_kemi_dmq_exports[] = {
 /* clang-format on */
 
 /**
- * Run peer event route from @a node->status (DMQ_NODE_ACTIVE -> dmq:peer-up,
- * DMQ_NODE_NOT_ACTIVE -> dmq:peer-down, DMQ_NODE_DISABLED -> dmq:peer-disabled).
- * Callers must set node->status to the intended announcement before calling
- * (e.g. under dmq_node_list lock, or after applying a transition).
- * Duplicate for the same status are suppressed using last_peer_evt.
+ * Run peer event route (dmq:node-up or dmq:node-down)
+ * base on old_status and new_status
  */
-void dmq_peer_run_event_route(dmq_node_t *node)
+void dmq_peer_run_event_route(int old_status, int new_status, dmq_node_t *node)
 {
 	const char *rtname;
 	int rt, backup_rt;
@@ -553,39 +550,17 @@ void dmq_peer_run_event_route(dmq_node_t *node)
 		return;
 	if(node->orig_uri.s == NULL || node->orig_uri.len <= 0)
 		return;
-
-	evt = node->status;
-
-	/* Same announcement twice (timer/body oscillation). */
-	if(node->last_peer_evt == evt) {
-		LM_DBG("peer event %d skipped (duplicate) for %.*s\n", evt,
-				STR_FMT(&node->orig_uri));
+	if(old_status == new_status)
 		return;
-	}
-	/* After peer-disabled, only peer-up is a valid next announcement. */
-	if(node->last_peer_evt == DMQ_NODE_DISABLED && evt != DMQ_NODE_ACTIVE) {
-		LM_DBG("peer event %d skipped (post-disabled) for %.*s\n", evt,
-				STR_FMT(&node->orig_uri));
+
+	if(new_status == DMQ_NODE_ACTIVE)
+		rtname = "dmq:node-up";
+	if(old_status == DMQ_NODE_ACTIVE
+			&& (new_status == DMQ_NODE_NOT_ACTIVE
+					|| new_status == DMQ_NODE_DISABLED))
+		rtname = "dmq:node-down";
+	else
 		return;
-	}
-
-	/* Logical transition recorded even if no event_route (suppression still applies). */
-	node->last_peer_evt = evt;
-
-	switch(evt) {
-		case DMQ_NODE_ACTIVE:
-			rtname = "dmq:peer-up";
-			break;
-		case DMQ_NODE_NOT_ACTIVE:
-			rtname = "dmq:peer-down";
-			break;
-		case DMQ_NODE_DISABLED:
-			rtname = "dmq:peer-disabled";
-			break;
-		default:
-			LM_BUG("dmq peer event: unexpected evt %d\n", evt);
-			return;
-	}
 
 	LM_DBG("executing event_route[%s] for %.*s\n", rtname,
 			STR_FMT(&node->orig_uri));
